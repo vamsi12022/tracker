@@ -1,4 +1,4 @@
-import { analyzeFood } from '@/lib/gemini';
+import { analyzeFood } from '@/lib/openai';
 import { NextResponse } from 'next/server';
 
 async function analyzeWithRetry(params, maxRetries = 2) {
@@ -48,7 +48,7 @@ export async function POST(request) {
 
     if (error.message?.includes('API_KEY')) {
       return NextResponse.json(
-        { error: 'API key not configured. Please add GEMINI_API_KEY to your environment.' },
+        { error: 'API key not configured. Please add OPENAI_API_KEY to your environment.' },
         { status: 500 }
       );
     }
