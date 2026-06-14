@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 
 export default function FoodInput({ onResult, onError }) {
   const [imagePreview, setImagePreview] = useState(null);
@@ -8,7 +8,27 @@ export default function FoodInput({ onResult, onError }) {
   const [imageMimeType, setImageMimeType] = useState('image/jpeg');
   const [textInput, setTextInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const fileInputRef = useRef(null);
+  const cooldownRef = useRef(null);
+
+  // Cooldown timer
+  useEffect(() => {
+    if (cooldown <= 0) {
+      if (cooldownRef.current) clearInterval(cooldownRef.current);
+      return;
+    }
+    cooldownRef.current = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(cooldownRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(cooldownRef.current);
+  }, [cooldown]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -35,7 +55,12 @@ export default function FoodInput({ onResult, onError }) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const analyzeFood = async (payload) => {
+  const analyzeFood = useCallback(async (payload) => {
+    if (cooldown > 0) {
+      onError(`Rate limited — please wait ${cooldown}s before trying again`);
+      return;
+    }
+
     setIsLoading(true);
     onError(null);
 
@@ -49,6 +74,10 @@ export default function FoodInput({ onResult, onError }) {
       const data = await res.json();
 
       if (!res.ok) {
+        // Start cooldown on rate limit
+        if (res.status === 429) {
+          setCooldown(data.retryAfter || 30);
+        }
         throw new Error(data.error || 'Failed to analyze food');
       }
 
@@ -60,7 +89,7 @@ export default function FoodInput({ onResult, onError }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [cooldown, onResult, onError]);
 
   const handleImageAnalyze = () => {
     if (!imageBase64) return;
@@ -78,15 +107,36 @@ export default function FoodInput({ onResult, onError }) {
       <div className="food-input">
         <div className="loading">
           <div className="loading__spinner" />
-          <div className="loading__text">🤖 AI is analyzing your food...</div>
+          <div className="loading__text">🤖 AI is analyzing your food...<br /><span style={{fontSize: '0.75rem', opacity: 0.6}}>This may take a few seconds if retrying</span></div>
         </div>
       </div>
     );
   }
 
+  const isDisabled = cooldown > 0;
+
   return (
     <section className="food-input" id="food-input">
       <h2 className="food-input__title">➕ Log Food</h2>
+
+      {/* Cooldown banner */}
+      {cooldown > 0 && (
+        <div style={{
+          background: 'rgba(251, 191, 36, 0.12)',
+          border: '1px solid rgba(251, 191, 36, 0.3)',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          fontSize: '0.85rem',
+          color: '#fbbf24',
+        }}>
+          <span>⏳</span>
+          <span>Rate limit cooldown — retry in <strong>{cooldown}s</strong></span>
+        </div>
+      )}
 
       {/* Image preview if selected */}
       {imagePreview && (
@@ -107,6 +157,7 @@ export default function FoodInput({ onResult, onError }) {
               fileInputRef.current.setAttribute('capture', 'environment');
               fileInputRef.current.click();
             }}
+            disabled={isDisabled}
             id="camera-btn"
           >
             <span className="food-input__btn-icon">📸</span>
@@ -118,6 +169,7 @@ export default function FoodInput({ onResult, onError }) {
               fileInputRef.current.removeAttribute('capture');
               fileInputRef.current.click();
             }}
+            disabled={isDisabled}
             id="gallery-btn"
           >
             <span className="food-input__btn-icon">🖼️</span>
@@ -140,10 +192,10 @@ export default function FoodInput({ onResult, onError }) {
         <button
           className="food-input__analyze-btn"
           onClick={handleImageAnalyze}
-          disabled={!imageBase64}
+          disabled={!imageBase64 || isDisabled}
           id="analyze-image-btn"
         >
-          🤖 Analyze with AI
+          {isDisabled ? `⏳ Wait ${cooldown}s` : '🤖 Analyze with AI'}
         </button>
       )}
 
@@ -161,10 +213,10 @@ export default function FoodInput({ onResult, onError }) {
           <button
             type="submit"
             className="food-input__submit-btn"
-            disabled={!textInput.trim()}
+            disabled={!textInput.trim() || isDisabled}
             id="analyze-text-btn"
           >
-            Analyze
+            {isDisabled ? `${cooldown}s` : 'Analyze'}
           </button>
         </form>
       )}
